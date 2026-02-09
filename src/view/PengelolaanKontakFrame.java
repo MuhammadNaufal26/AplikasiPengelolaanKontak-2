@@ -30,30 +30,59 @@ public class PengelolaanKontakFrame extends javax.swing.JFrame {
         initComponents();
         
         controller = new KontakController();
-        model = new DefaultTableModel(new String[]
-                {"No", "Nama", "Nomor Telepon", "Kategori"}, 0);
+    
+        // Ganti "No" menjadi "ID"
+        model = new DefaultTableModel(new String[]{"ID", "Nama", "Nomor Telepon", "Kategori"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false; // Agar user tidak bisa edit manual di tabel
+            }
+        };
         tblKontak.setModel(model);
+        // Menyembunyikan kolom ID (index 0) dari pandangan user, tapi data tetap ada di memory
+        tblKontak.getColumnModel().getColumn(0).setMinWidth(0);
+        tblKontak.getColumnModel().getColumn(0).setMaxWidth(0);
+        tblKontak.getColumnModel().getColumn(0).setWidth(0);
         loadContacts();
-           
+    }
+    
+    private File getUniqueFile(File file) {
+        String path = file.getAbsolutePath();
+        String extension = "";
+        String name = path;
+
+        int idx = path.lastIndexOf('.');
+        if (idx > 0) {
+            extension = path.substring(idx); // mengambil .csv
+            name = path.substring(0, idx);   // mengambil nama tanpa ekstensi
+        }
+
+        File newFile = file;
+        int count = 1;
+        while (newFile.exists()) {
+            newFile = new File(name + " (" + count + ")" + extension);
+            count++;
+        }
+        return newFile;
     }
     
     private void loadContacts() {
-            try {
-                model.setRowCount(0);
-                List<Kontak> contacts = controller.getAllContacts();
-                int rowNumber = 1;
-                for (Kontak contact : contacts) {
-                    model.addRow(new Object[]{
-                        rowNumber++,
-                        contact.getNama(),
-                        contact.getNomorTelepon(),
-                        contact.getKategori()
-                    });
-                }
-            } catch (SQLException e) {
-                showError(e.getMessage());
+        // Gunakan SwingWorker agar proses baca DB tidak membuat UI 'hang'
+        try {
+            model.setRowCount(0);
+            List<Kontak> contacts = controller.getAllContacts();
+            for (Kontak contact : contacts) {
+                model.addRow(new Object[]{
+                    contact.getId(), // AMBIL ID DARI DATABASE
+                    contact.getNama(),
+                    contact.getNomorTelepon(),
+                    contact.getKategori()
+                });
             }
+        } catch (SQLException e) {
+            showError(e.getMessage());
         }
+    }
         private void showError(String message) {
             JOptionPane.showMessageDialog(this, message, "Error",
             JOptionPane.ERROR_MESSAGE);
@@ -63,35 +92,42 @@ public class PengelolaanKontakFrame extends javax.swing.JFrame {
             String nama = txtNama.getText().trim();
             String nomorTelepon = txtNomorTelepon.getText().trim();
             String kategori = (String) cmbKategori.getSelectedItem();
-            if (!validatePhoneNumber(nomorTelepon)) {
-                return; // Validasi nomor telepon gagal
-            }
+
+            if (!validatePhoneNumber(nomorTelepon)) return;
+
             try {
                 if (controller.isDuplicatePhoneNumber(nomorTelepon, null)) {
-                JOptionPane.showMessageDialog(this, "Kontak nomor telepon ini sudah ada.", "Kesalahan", JOptionPane.WARNING_MESSAGE);
+                    JOptionPane.showMessageDialog(this, "Nomor sudah ada!", "Peringatan", JOptionPane.WARNING_MESSAGE);
                     return;
                 }
+
                 controller.addContact(nama, nomorTelepon, kategori);
-                loadContacts();
-                JOptionPane.showMessageDialog(this, "Kontak berhasil ditambahkan!");
+                loadContacts(); // <--- WAJIB PANGGIL INI supaya tabel update otomatis
                 clearInputFields();
+                JOptionPane.showMessageDialog(this, "Berhasil disimpan!");
             } catch (SQLException ex) {
-                showError("Gagal menambahkan kontak: " + ex.getMessage());
+                showError(ex.getMessage());
             }
         }
         private boolean validatePhoneNumber(String phoneNumber) {
-            if (phoneNumber == null || phoneNumber.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Nomor telepon tidak boleh kosong.");
+            // Memastikan nomor telepon tidak kosong atau hanya berisi spasi
+            if (phoneNumber == null || phoneNumber.trim().isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Nomor telepon tidak boleh kosong.", "Validasi Gagal", JOptionPane.ERROR_MESSAGE);
                 return false;
             }
-            if (!phoneNumber.matches("\\d+")) { // Hanya angka
-                JOptionPane.showMessageDialog(this, "Nomor telepon hanya boleh berisi angka.");
+
+            // Regex \\d+ memastikan hanya karakter 0-9 yang diizinkan
+            if (!phoneNumber.matches("\\d+")) { 
+                JOptionPane.showMessageDialog(this, "Nomor telepon hanya boleh berisi angka.", "Validasi Gagal", JOptionPane.ERROR_MESSAGE);
                 return false;
             }
-            if (phoneNumber.length() < 8 || phoneNumber.length() > 15) { //Panjang 8-15
-                JOptionPane.showMessageDialog(this, "Nomor telepon harus memiliki panjang antara 8 hingga 15 karakter.");
+
+            // Validasi panjang karakter antara 8 hingga 15
+            if (phoneNumber.length() < 8 || phoneNumber.length() > 15) { 
+                JOptionPane.showMessageDialog(this, "Nomor telepon harus memiliki panjang antara 8 hingga 15 karakter.", "Validasi Gagal", JOptionPane.ERROR_MESSAGE);
                 return false;
             }
+
             return true;
         }
         private void clearInputFields() {
@@ -103,27 +139,22 @@ public class PengelolaanKontakFrame extends javax.swing.JFrame {
         private void editContact() {
             int selectedRow = tblKontak.getSelectedRow();
             if (selectedRow == -1) {
-                JOptionPane.showMessageDialog(this, "Pilih kontak yang ingin diperbarui.", "Kesalahan", JOptionPane.WARNING_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Pilih baris dulu!");
                 return;
             }
-            int id = (int) model.getValueAt(selectedRow, 0);
-            String nama = txtNama.getText().trim();
-            String nomorTelepon = txtNomorTelepon.getText().trim();
+
+            // Mengambil ID asli dari kolom 0
+            int id = (int) model.getValueAt(selectedRow, 0); 
+            String nama = txtNama.getText();
+            String nomor = txtNomorTelepon.getText();
             String kategori = (String) cmbKategori.getSelectedItem();
-            if (!validatePhoneNumber(nomorTelepon)) {
-                return;
-            }
+
             try {
-                if (controller.isDuplicatePhoneNumber(nomorTelepon, id)) {
-                    JOptionPane.showMessageDialog(this, "Kontak nomor telepon ini sudah ada.", "Kesalahan", JOptionPane.WARNING_MESSAGE);
-                    return;
-                }
-                controller.updateContact(id, nama, nomorTelepon, kategori);
-                loadContacts();
-                JOptionPane.showMessageDialog(this, "Kontak berhasil diperbarui!");
-                clearInputFields();
-            } catch (SQLException ex) {
-                showError("Gagal memperbarui kontak: " + ex.getMessage());
+                controller.updateContact(id, nama, nomor, kategori);
+                JOptionPane.showMessageDialog(this, "Berhasil diupdate!");
+                loadContacts(); // Refresh tabel
+            } catch (SQLException e) {
+                showError(e.getMessage());
             }
         }
         private void populateInputFields(int selectedRow) {
@@ -139,16 +170,28 @@ public class PengelolaanKontakFrame extends javax.swing.JFrame {
         
         private void deleteContact() {
             int selectedRow = tblKontak.getSelectedRow();
+
             if (selectedRow != -1) {
-                int id = (int) model.getValueAt(selectedRow, 0);
-                try {
-                    controller.deleteContact(id);
-                    loadContacts();
-                    JOptionPane.showMessageDialog(this, "Kontak berhasil dihapus!");
-                    clearInputFields();
-                } catch (SQLException e) {
-                    showError(e.getMessage());
+                // AMBIL ID DARI KOLOM 0
+                int id = (int) model.getValueAt(selectedRow, 0); 
+
+                int confirm = JOptionPane.showConfirmDialog(this, "Yakin hapus kontak ini?", "Konfirmasi", JOptionPane.YES_NO_OPTION);
+
+                if (confirm == JOptionPane.YES_OPTION) {
+                    try {
+                        // Proses Hapus via Controller
+                        controller.deleteContact(id);
+
+                        // REFRESH DATA
+                        loadContacts();
+                        clearInputFields();
+                        JOptionPane.showMessageDialog(this, "Kontak berhasil dihapus!");
+                    } catch (SQLException e) {
+                        showError("Gagal menghapus: " + e.getMessage());
+                    }
                 }
+            } else {
+                JOptionPane.showMessageDialog(this, "Pilih kontak yang akan dihapus!");
             }
         }
         
@@ -179,124 +222,80 @@ public class PengelolaanKontakFrame extends javax.swing.JFrame {
         
         private void exportToCSV() {
             JFileChooser fileChooser = new JFileChooser();
-            fileChooser.setDialogTitle("Simpan File CSV");
-            int userSelection = fileChooser.showSaveDialog(this);
-                if (userSelection == JFileChooser.APPROVE_OPTION) {
-                File fileToSave = fileChooser.getSelectedFile();
-                // Tambahkan ekstensi .csv jika pengguna tidak menambahkannya
-                if (!fileToSave.getAbsolutePath().endsWith(".csv")) {
-                fileToSave = new File(fileToSave.getAbsolutePath() + ".csv");
+            fileChooser.setDialogTitle("Simpan Kontak ke CSV");
+
+            // 1. SET NAMA DEFAULT (misal: kontak.csv)
+            fileChooser.setSelectedFile(new File("kontak.csv"));
+
+            // 2. SET FILTER CSV
+            javax.swing.filechooser.FileNameExtensionFilter filter = 
+                new javax.swing.filechooser.FileNameExtensionFilter("CSV Files (*.csv)", "csv");
+            fileChooser.setFileFilter(filter);
+
+            if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+                File file = fileChooser.getSelectedFile();
+
+                // Memastikan ekstensi .csv tertulis
+                if (!file.getName().toLowerCase().endsWith(".csv")) {
+                    file = new File(file.getAbsolutePath() + ".csv");
                 }
-                try (BufferedWriter writer = new BufferedWriter(new
-                FileWriter(fileToSave))) {
-                    writer.write("ID,Nama,Nomor Telepon,Kategori\n"); // Header CSV
+
+                // Cek duplikasi nama file agar tidak replace (Auto (1), (2), dst)
+                file = getUniqueFile(file);
+
+                try (PrintWriter pw = new PrintWriter(new FileWriter(file))) {
+                    pw.println("ID,Nama,Nomor Telepon,Kategori"); // Header
+
                     for (int i = 0; i < model.getRowCount(); i++) {
-                        writer.write(
-                        model.getValueAt(i, 0) + "," +
-                        model.getValueAt(i, 1) + "," +
-                        model.getValueAt(i, 2) + "," +
-                        model.getValueAt(i, 3) + "\n"
-                        );
+                        pw.println(String.format("\"%s\",\"%s\",\"%s\",\"%s\"",
+                            model.getValueAt(i, 0),
+                            model.getValueAt(i, 1),
+                            model.getValueAt(i, 2),
+                            model.getValueAt(i, 3)));
                     }
-                    JOptionPane.showMessageDialog(this, "Data berhasil diekspor ke " + fileToSave.getAbsolutePath());
-                } catch (IOException ex) {
-                    showError("Gagal menulis file: " + ex.getMessage());
+                    JOptionPane.showMessageDialog(this, "Data berhasil diekspor ke: " + file.getName());
+                } catch (IOException e) {
+                    showError("Gagal ekspor: " + e.getMessage());
                 }
             }
         }
         private void importFromCSV() {
-            showCSVGuide();
-            int confirm = JOptionPane.showConfirmDialog(
-            this,
-            "Apakah Anda yakin file CSV yang dipilih sudah sesuai dengan format?",
-            "Konfirmasi Impor CSV",
-            JOptionPane.YES_NO_OPTION
-            );
-            if (confirm == JOptionPane.YES_OPTION) {
-                JFileChooser fileChooser = new JFileChooser();
-                fileChooser.setDialogTitle("Pilih File CSV");
-                int userSelection = fileChooser.showOpenDialog(this);
-                if (userSelection == JFileChooser.APPROVE_OPTION) {
-                    File fileToOpen = fileChooser.getSelectedFile();
-                    try (BufferedReader reader = new BufferedReader(new
-                    FileReader(fileToOpen))) {
-                        String line = reader.readLine(); // Baca header
-                        if (!validateCSVHeader(line)) {
-                            JOptionPane.showMessageDialog(this, "Format header CSV tidak valid. Pastikan header adalah: ID,Nama,Nomor Telepon,Kategori",
-                            "Kesalahan CSV", JOptionPane.ERROR_MESSAGE);
-                            return;
-                        }
-                        int rowCount = 0;
-                        int errorCount = 0;
-                        int duplicateCount = 0;
-                        StringBuilder errorLog = new StringBuilder("Baris dengan kesalahan:\n");
-                        while ((line = reader.readLine()) != null) {
-                            rowCount++;
+            JFileChooser fileChooser = new JFileChooser();
+            fileChooser.setDialogTitle("Pilih File CSV Kontak");
 
-                            String[] data = line.split(",");
+            // SET FILTER CSV agar file jenis lain (exe, txt, pdf) tersembunyi
+            javax.swing.filechooser.FileNameExtensionFilter filter = 
+                new javax.swing.filechooser.FileNameExtensionFilter("CSV Files (*.csv)", "csv");
+            fileChooser.setFileFilter(filter);
+            fileChooser.setAcceptAllFileFilterUsed(false); // Memaksa user hanya melihat CSV
 
-                            if (data.length != 4) {
-                                errorCount++;
+            if (fileChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                File file = fileChooser.getSelectedFile();
 
-                                errorLog.append("Baris ").append(rowCount +
+                try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+                    String line;
+                    br.readLine(); // Lewati header
+                    int count = 0;
 
-                                1).append(": Format kolom tidak sesuai.\n");
-                                continue;
-                            }
-                            String nama = data[1].trim();
-                            String nomorTelepon = data[2].trim();
-                            String kategori = data[3].trim();
-                            if (nama.isEmpty() || nomorTelepon.isEmpty()) {
-                                errorCount++;
+                    while ((line = br.readLine()) != null) {
+                        // Regex parser untuk menangani koma di dalam nama
+                        String[] data = line.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
 
-                                errorLog.append("Baris ").append(rowCount +
+                        if (data.length >= 4) {
+                            String nama = data[1].replace("\"", "");
+                            String nomor = data[2].replace("\"", "");
+                            String kategori = data[3].replace("\"", "");
 
-                                1).append(": Nama atau Nomor Telepon kosong.\n");
-                                continue;
-                            }
-                            if (!validatePhoneNumber(nomorTelepon)) {
-                                errorCount++;
-
-                                errorLog.append("Baris ").append(rowCount +
-
-                                1).append(": Nomor Telepon tidak valid.\n");
-                                continue;
-                            }
-                            try {
-                            if
-                                (controller.isDuplicatePhoneNumber(nomorTelepon, null)) {
-                                    duplicateCount++;
-
-                                    errorLog.append("Baris ").append(rowCount +
-
-                                    1).append(": Kontak sudah ada.\n");
-                                    continue;
-                                }
-                            } catch (SQLException ex) {
-                                Logger.getLogger(PengelolaanKontakFrame.class.getName()).log(Level.SEVERE
-                                , null, ex);
-                            }
-                            try {
-                                controller.addContact(nama, nomorTelepon,
-                                kategori);
-                            } catch (SQLException ex) {
-                                errorCount++;
-                                errorLog.append("Baris ").append(rowCount +
-                                1).append(": Gagal menyimpan ke database -  ").append(ex.getMessage()).append("\n");
+                            if (!controller.isDuplicatePhoneNumber(nomor, null)) {
+                                controller.addContact(nama, nomor, kategori);
+                                count++;
                             }
                         }
-                        loadContacts();
-                        if (errorCount > 0 || duplicateCount > 0) {
-                            errorLog.append("\nTotal baris dengan kesalahan: ").append(errorCount).append("\n");
-                            errorLog.append("Total baris duplikat:  ").append(duplicateCount).append("\n");
-                            JOptionPane.showMessageDialog(this,
-                            errorLog.toString(), "Kesalahan Impor", JOptionPane.WARNING_MESSAGE);
-                        } else {
-                            JOptionPane.showMessageDialog(this, "Semua data  berhasil diimpor.");
-                        }
-                    } catch (IOException ex) {
-                        showError("Gagal membaca file: " + ex.getMessage());
                     }
+                    loadContacts();
+                    JOptionPane.showMessageDialog(this, count + " data berhasil diimpor!");
+                } catch (Exception e) {
+                    showError("Gagal impor: " + e.getMessage());
                 }
             }
         }

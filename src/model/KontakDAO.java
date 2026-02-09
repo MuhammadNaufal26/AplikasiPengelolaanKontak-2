@@ -66,19 +66,24 @@ public class KontakDAO {
     // Method untuk mencari kontak di tabel
     public List<Kontak> searchContacts(String keyword) throws SQLException {
         List<Kontak> contacts = new ArrayList<>();
-        String sql = "SELECT * FROM contacts WHERE nama LIKE ? OR nomor_telepon LIKE ?";
+        // Tambahkan kondisi OR untuk kolom kategori
+        String sql = "SELECT * FROM contacts WHERE nama LIKE ? OR nomor_telepon LIKE ? OR kategori LIKE ?";
+
         try (Connection conn = DatabaseConnection.getConnection();
-        PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, "%" + keyword + "%");
-            pstmt.setString(2, "%" + keyword + "%");
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            String query = "%" + keyword + "%";
+            pstmt.setString(1, query);
+            pstmt.setString(2, query);
+            pstmt.setString(3, query); // Pencarian berdasarkan kategori
+
             ResultSet rs = pstmt.executeQuery();
             while (rs.next()) {
-                Kontak contact = new Kontak(
-                rs.getInt("id"),
-                rs.getString("nama"),
-                rs.getString("nomor_telepon"),
-                rs.getString("kategori"));
-                contacts.add(contact);
+                contacts.add(new Kontak(
+                    rs.getInt("id"),
+                    rs.getString("nama"),
+                    rs.getString("nomor_telepon"),
+                    rs.getString("kategori")
+                ));
             }
         }
         return contacts;
